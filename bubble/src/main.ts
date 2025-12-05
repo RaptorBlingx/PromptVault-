@@ -207,43 +207,46 @@ ipcMain.handle('get-is-expanded', () => {
     return store.get('isExpanded');
 });
 
-// ----- App Events -----
-
-app.whenReady().then(() => {
-    createWindow();
-    createTray();
-    registerGlobalShortcut();
-
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
-    });
-});
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
-
-app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-});
-
-app.on('before-quit', () => {
-    isQuitting = true;
-});
-
-// Single instance lock
+// ----- Single Instance Lock -----
+// Must be checked before any other initialization
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
     app.quit();
 } else {
     app.on('second-instance', () => {
+        // Someone tried to run a second instance, focus our window
         if (mainWindow) {
-            showWindow();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
         }
+    });
+
+    // ----- App Events -----
+    app.whenReady().then(() => {
+        createWindow();
+        createTray();
+        registerGlobalShortcut();
+
+        app.on('activate', () => {
+            if (BrowserWindow.getAllWindows().length === 0) {
+                createWindow();
+            }
+        });
+    });
+
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') {
+            app.quit();
+        }
+    });
+
+    app.on('will-quit', () => {
+        globalShortcut.unregisterAll();
+    });
+
+    app.on('before-quit', () => {
+        isQuitting = true;
     });
 }
