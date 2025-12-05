@@ -96,7 +96,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         alignItems: 'flex-start',
         justifyContent: 'space-between',
         marginBottom: 'var(--space-2)',
-        paddingRight: prompt.isPinned ? 20 : 0,
+        paddingRight: 0,
       }}>
         <h3
           className="truncate"
@@ -113,27 +113,52 @@ export const PromptCard: React.FC<PromptCardProps> = ({
           <Highlight text={prompt.title || 'Untitled Prompt'} query={searchQuery} />
         </h3>
 
-        <button
-          onClick={onToggleFavorite}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 4,
-            borderRadius: 'var(--radius-sm)',
-            color: prompt.isFavorite
-              ? 'var(--color-warning)'
-              : 'var(--color-text-muted)',
-            transition: 'all var(--transition-fast)',
-            opacity: prompt.isFavorite ? 1 : 0,
-          }}
-          className="favorite-btn"
-        >
-          <Icons.Star
-            size={14}
-            fill={prompt.isFavorite ? 'currentColor' : 'none'}
-          />
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            onClick={onTogglePin}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              borderRadius: 'var(--radius-sm)',
+              color: prompt.isPinned
+                ? 'var(--color-accent)'
+                : 'var(--color-text-muted)',
+              transition: 'all var(--transition-fast)',
+              opacity: prompt.isPinned ? 1 : 0,
+            }}
+            className="action-btn"
+            title={prompt.isPinned ? "Unpin" : "Pin"}
+          >
+            <Icons.Pin
+              size={14}
+              fill={prompt.isPinned ? 'currentColor' : 'none'}
+            />
+          </button>
+          <button
+            onClick={onToggleFavorite}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              borderRadius: 'var(--radius-sm)',
+              color: prompt.isFavorite
+                ? 'var(--color-warning)'
+                : 'var(--color-text-muted)',
+              transition: 'all var(--transition-fast)',
+              opacity: prompt.isFavorite ? 1 : 0,
+            }}
+            className="action-btn"
+            title={prompt.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Icons.Star
+              size={14}
+              fill={prompt.isFavorite ? 'currentColor' : 'none'}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Content Preview */}
@@ -194,6 +219,30 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         {/* Spacer */}
         <span style={{ flex: 1 }} />
 
+        {/* Copy Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(prompt.content);
+            // Optional: Show tooltip or toast? The parent handles toasts usually, but here we do it inline?
+            // We don't have access to addToast here easily without prop drilling.
+            // Let's just rely on the action.
+          }}
+          className="action-btn"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 4,
+            color: 'var(--color-text-muted)',
+            opacity: 0,
+            transition: 'opacity 0.2s',
+          }}
+          title="Copy to clipboard"
+        >
+          <Icons.Copy size={12} />
+        </button>
+
         {/* Date */}
         <span style={{
           fontSize: '10px',
@@ -204,7 +253,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
       </div>
 
       <style>{`
-        div:hover .favorite-btn {
+        div:hover .action-btn {
           opacity: 1 !important;
         }
       `}</style>

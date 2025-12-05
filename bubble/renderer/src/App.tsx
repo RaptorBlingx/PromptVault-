@@ -118,7 +118,8 @@ const App: React.FC = () => {
     const handleMouseDown = (e: React.MouseEvent) => {
         if (e.button !== 0) return; // Only left click
         isDragging.current = true;
-        dragOffset.current = { x: e.screenX, y: e.screenY };
+        // Store the offset of the mouse relative to the window's top-left corner
+        dragOffset.current = { x: e.clientX, y: e.clientY };
 
         // Add global listeners
         document.addEventListener('mousemove', handleMouseMove);
@@ -128,60 +129,13 @@ const App: React.FC = () => {
     const handleMouseMove = useCallback((e: MouseEvent) => {
         if (!isDragging.current) return;
 
-        const deltaX = e.screenX - dragOffset.current.x;
-        const deltaY = e.screenY - dragOffset.current.y;
+        // Calculate new window position based on screen mouse position and initial offset
+        const newX = e.screenX - dragOffset.current.x;
+        const newY = e.screenY - dragOffset.current.y;
 
-        // We need the current window position to add delta
-        // But since we don't track it locally, we can't easily do relative moves without querying main
-        // A simpler approach for "manual drag" is to ask main to move relative to current
-        // BUT, standard drag usually sets position based on mouse delta.
-        // Let's use a simpler approach: Just tell main to move by delta? No, setPosition is absolute.
-
-        // Better approach: Since we are in a transparent window that might cover the screen (if expanded)
-        // or just a bubble.
-        // Actually, for the bubble, we can use the `movementX/Y` from the event if we were locked,
-        // but screenX/Y is better.
-
-        // Wait, to do this properly without lag, we need the initial window position.
-        // Let's just use the `move-window` IPC which we defined to take absolute coordinates.
-        // We need to know where the window IS.
-        // Let's assume the main process handles the "move relative" if we send delta?
-        // No, I defined `move-window` to take {x, y}.
-
-        // Let's change strategy: We will use `webkit-app-region: drag` for the expanded header,
-        // but for the bubble button, we need to distinguish click vs drag.
-        // Actually, if I remove `webkit-app-region: drag` from the bubble, I can implement a "hold to drag"
-        // or just use a small drag handle.
-        // OR, I can use the fact that `click` fires after `mouseup`.
-        // If I moved more than a few pixels, it's a drag, not a click.
-
-        // Let's try this:
-        // 1. On mousedown, get current window position from main (async).
-        // 2. Then start tracking delta.
-        // This might be laggy.
-
-        // Alternative: Just use a specific "Drag" handle icon on the bubble?
-        // The user said "the bubble is stuck".
-        // Let's try to make the bubble draggable by holding it.
-
-        // Actually, `window.moveTo` works in Electron renderer if `nodeIntegration` is off?
-        // No, usually blocked.
-
-        // Let's go with: The bubble button itself is NOT draggable by default (to allow clicks),
-        // but maybe the outer rim is? Or add a small drag indicator.
-
-        // User wants it to be "much more better".
-        // Let's implement a proper drag handler.
-        // I will use `window.electronAPI.moveWindow` but I need the current position.
-        // I'll add `getWindowPosition` to API?
-        // Too complicated for now.
-
-        // SIMPLEST FIX:
-        // Use `webkit-app-region: drag` on a *part* of the bubble, e.g. an outer ring,
-        // and let the center be clickable.
-        // OR, use `webkit-app-region: drag` but put a `no-drag` button inside it.
-        // Yes! That's the standard Electron way.
-        // Make the bubble `drag`, but the icon inside `no-drag`.
+        if (window.electronAPI) {
+            window.electronAPI.moveWindow({ x: newX, y: newY });
+        }
     }, []);
 
     const handleMouseUp = () => {
@@ -305,8 +259,8 @@ const App: React.FC = () => {
     // ----- Render Bubble -----
     if (!isExpanded) {
         return (
-            // The container is draggable, the button inside captures clicks
-            <div className="bubble-container">
+            // The container is draggable via our manual handler
+            <div className="bubble-container" onMouseDown={handleMouseDown}>
                 <button className="bubble-button" onClick={() => handleExpand(true)}>
                     <span className="bubble-icon">💬</span>
                 </button>
