@@ -86,7 +86,7 @@ function createWindow(): void {
 function createTray(): void {
     // Create a simple icon (in production, use a proper icon file)
     const iconPath = path.join(__dirname, '../assets/tray-icon.png');
-    let icon: nativeImage;
+    let icon: Electron.NativeImage;
 
     try {
         icon = nativeImage.createFromPath(iconPath);
