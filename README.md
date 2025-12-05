@@ -1,50 +1,87 @@
-# PromptVault
+# PromptVault Pro
 
-A professional, desktop-class prompt management application designed to organize, edit, and optimize your LLM prompts.
+<div align="center">
 
-## Features
+**State-of-the-Art Prompt Management System for LLM Power Users**
 
-- 📂 **Organize**: Store all your prompts in one secure place with local storage persistence.
-- ⚡ **Zero-Latency Search**: Instantly find prompts by title, content, or tags with highlighted results.
-- ✨ **AI Optimization**: Improve your prompts using Google's Gemini API with a single click.
-- 🎨 **Clean UI**: A focused, distraction-free interface built for readability.
-- 🐳 **Dockerized**: Ready for self-hosting on your home lab or server with a "Zero-Touch" setup.
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](https://github.com/RaptorBlingx/PromptVault)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Quick Start (Docker)
+</div>
 
-The easiest way to run PromptVault on your server is using Docker.
+---
 
-1. **Clone the repository**
-2. **Set your API Key**
-   Open `docker-compose.yml` and replace `${API_KEY}` with your actual Google Gemini API Key, or set it in your environment before running the command:
-   ```bash
-   export API_KEY="your_api_key_here"
-   ```
-3. **Run the container**
-   ```bash
-   docker compose up -d --build
-   ```
-4. **Access the App**
-   Open [http://localhost:2528](http://localhost:2528) in your browser.
+## ✨ Features
 
-## Local Development
+| Feature | Description |
+|---------|-------------|
+| 📁 **Folders** | Organize prompts into collections with custom icons |
+| ⚡ **Smart Variables** | Use `{{variable}}` syntax for dynamic prompts |
+| 🌙 **Dark Mode** | System-aware theme with manual toggle |
+| ⌨️ **Command Palette** | Quick search and actions with `Ctrl+K` |
+| 🕐 **Version History** | Auto-saves last 5 versions with one-click restore |
+| 📌 **Pin to Top** | Keep important prompts visible |
+| ⭐ **Favorites** | Quick access to starred prompts |
+| 🤖 **AI Optimize** | Improve prompts using Gemini API |
+| 💾 **Import/Export** | Full JSON backup and restore |
+| 🐳 **Docker Ready** | Zero-touch self-hosting |
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Set your environment variable:
-   ```bash
-   export API_KEY=your_key_here
-   ```
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
+---
 
-## Technologies
+## 🚀 Quick Start
 
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Lucide Icons
-- **AI Integration**: Google GenAI SDK (Gemini 2.5)
-- **Build Tool**: Vite
-- **Deployment**: Docker, Nginx (Alpine based)
+### Docker (Recommended)
+
+```bash
+git clone https://github.com/RaptorBlingx/PromptVault.git
+cd PromptVault
+docker compose up -d --build
+```
+
+Open [http://localhost:2528](http://localhost:2528) in your browser.
+
+### With AI Optimization (Optional)
+
+Set your Gemini API key:
+
+```bash
+export API_KEY="your_gemini_api_key"
+docker compose up -d --build
+```
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+K` | Command Palette |
+| `Ctrl+N` | New Prompt |
+| `Ctrl+S` | Save (in editor) |
+| `Esc` | Close modals |
+
+---
+
+## 🛠️ Local Development
+
+```bash
+npm install
+npm run dev
+```
+
+---
+
+## 📦 Tech Stack
+
+- **Frontend**: React 18, TypeScript
+- **Styling**: Custom CSS Design System (Dark/Light)
+- **Icons**: Lucide React
+- **AI**: Google Gemini API
+- **Build**: Vite
+- **Deploy**: Docker + Nginx
+
+---
+
+## 📄 License
+
+MIT © [RaptorBlingx](https://github.com/RaptorBlingx)

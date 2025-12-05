@@ -1,97 +1,281 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Sidebar } from './components/Sidebar';
 import { DetailView } from './components/DetailView';
 import { PromptCard } from './components/PromptCard';
 import { ToastContainer } from './components/Toast';
+import { CommandPalette, useCommandPalette } from './components/CommandPalette';
+import { VariableModal } from './components/VariableModal';
 import { Icons } from './components/Icon';
-import { Prompt, ViewState, ToastNotification, SortOption } from './types';
-import { loadPrompts, savePrompts } from './services/storageService';
+import {
+  Prompt,
+  Folder,
+  ViewState,
+  ToastNotification,
+  SortOption,
+  createDefaultPrompt,
+  createDefaultFolder,
+  extractVariables,
+} from './types';
+import {
+  loadPrompts,
+  savePrompts,
+  loadFolders,
+  saveFolders,
+  duplicatePrompt,
+  exportData,
+  importData,
+} from './services/storageService';
 
-const App: React.FC = () => {
+// ----- Folder Modal -----
+interface FolderModalProps {
+  folder?: Folder | null;
+  onSave: (name: string, icon: string) => void;
+  onClose: () => void;
+}
+
+const FolderModal: React.FC<FolderModalProps> = ({ folder, onSave, onClose }) => {
+  const [name, setName] = useState(folder?.name || '');
+  const [icon, setIcon] = useState(folder?.icon || '📁');
+  const icons = ['📁', '📂', '🗂️', '💼', '📚', '🎯', '⚡', '🔥', '💡', '🚀', '🎨', '🔧', '📝', '💻', '🌐'];
+
+  return (
+    <div className="modal-backdrop animate-fade-in" onClick={onClose}>
+      <div className="modal animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>
+            {folder ? 'Edit Folder' : 'New Folder'}
+          </h3>
+        </div>
+        <div className="modal-body">
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <label style={{
+              display: 'block',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 500,
+              marginBottom: 'var(--space-2)',
+            }}>
+              Folder Name
+            </label>
+            <input
+              type="text"
+              className="input"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="My Folder"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 500,
+              marginBottom: 'var(--space-2)',
+            }}>
+              Icon
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+              {icons.map(i => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setIcon(i)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    fontSize: 20,
+                    background: icon === i ? 'var(--color-accent-bg)' : 'var(--color-bg-tertiary)',
+                    border: icon === i ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {i}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => { onSave(name, icon); onClose(); }}
+            disabled={!name.trim()}
+          >
+            {folder ? 'Save' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ----- Main App Content -----
+const AppContent: React.FC = () => {
+  const { theme, setTheme } = useTheme();
+  const commandPalette = useCommandPalette();
+
+  // State
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [activeView, setActiveView] = useState<ViewState>('LIST');
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>(SortOption.NEWEST);
 
-  // Load initial data
+  // Modals
+  const [folderModal, setFolderModal] = useState<{ isOpen: boolean; folder?: Folder | null }>({ isOpen: false });
+  const [variableModal, setVariableModal] = useState<{ isOpen: boolean; content: string }>({ isOpen: false, content: '' });
+
+  // Load data
   useEffect(() => {
-    const loaded = loadPrompts();
-    setPrompts(loaded);
+    setPrompts(loadPrompts());
+    setFolders(loadFolders());
   }, []);
 
-  // Persist on change
-  useEffect(() => {
-    savePrompts(prompts);
-  }, [prompts]);
+  // Persist
+  useEffect(() => { savePrompts(prompts); }, [prompts]);
+  useEffect(() => { saveFolders(folders); }, [folders]);
 
-  const addToast = (message: string, type: 'success' | 'error' | 'info') => {
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        handleCreatePrompt();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's' && isEditing) {
+        e.preventDefault();
+        // Save is handled by DetailView
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isEditing]);
+
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info') => {
     const id = Date.now().toString();
     setToasts(prev => [...prev, { id, message, type }]);
-  };
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-  };
+  }, []);
 
-  const handleCreatePrompt = () => {
-    const newPrompt: Prompt = {
-      id: Date.now().toString(),
-      title: 'New Prompt',
-      content: '',
-      tags: [],
-      isFavorite: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    setPrompts([newPrompt, ...prompts]);
+  const handleCreatePrompt = useCallback(() => {
+    const newPrompt = createDefaultPrompt(selectedFolderId);
+    setPrompts(prev => [newPrompt, ...prev]);
     setSelectedPromptId(newPrompt.id);
     setIsEditing(true);
-    setActiveView('LIST'); // Switch back to list view with the new item selected
-  };
+    setActiveView('LIST');
+  }, [selectedFolderId]);
 
-  const handleUpdatePrompt = (updated: Prompt) => {
+  const handleUpdatePrompt = useCallback((updated: Prompt) => {
     setPrompts(prev => prev.map(p => p.id === updated.id ? updated : p));
-  };
+  }, []);
 
-  const handleDeletePrompt = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this prompt?')) {
+  const handleDeletePrompt = useCallback((id: string) => {
+    if (window.confirm('Delete this prompt?')) {
       setPrompts(prev => prev.filter(p => p.id !== id));
       if (selectedPromptId === id) setSelectedPromptId(null);
       addToast('Prompt deleted', 'info');
     }
-  };
+  }, [selectedPromptId, addToast]);
 
-  const handleToggleFavorite = (e: React.MouseEvent, id: string) => {
+  const handleToggleFavorite = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setPrompts(prev => prev.map(p => 
+    setPrompts(prev => prev.map(p =>
       p.id === id ? { ...p, isFavorite: !p.isFavorite } : p
     ));
-  };
+  }, []);
 
-  const handleCopy = (content: string) => {
+  const handleTogglePin = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setPrompts(prev => prev.map(p =>
+      p.id === id ? { ...p, isPinned: !p.isPinned } : p
+    ));
+  }, []);
+
+  const handleCopy = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
     addToast('Copied to clipboard!', 'success');
-  };
+  }, [addToast]);
 
-  // Filter & Sort Logic
+  const handleCopyWithVariables = useCallback((content: string) => {
+    const vars = extractVariables(content);
+    if (vars.length > 0) {
+      setVariableModal({ isOpen: true, content });
+    } else {
+      handleCopy(content);
+    }
+  }, [handleCopy]);
+
+  const handleDuplicate = useCallback((prompt: Prompt) => {
+    const dup = duplicatePrompt(prompt);
+    setPrompts(prev => [dup, ...prev]);
+    setSelectedPromptId(dup.id);
+    addToast('Prompt duplicated', 'success');
+  }, [addToast]);
+
+  // Folder handlers
+  const handleCreateFolder = useCallback(() => {
+    setFolderModal({ isOpen: true, folder: null });
+  }, []);
+
+  const handleSaveFolder = useCallback((name: string, icon: string) => {
+    if (folderModal.folder) {
+      setFolders(prev => prev.map(f =>
+        f.id === folderModal.folder!.id ? { ...f, name, icon } : f
+      ));
+    } else {
+      const newFolder = { ...createDefaultFolder(name), icon };
+      setFolders(prev => [...prev, newFolder]);
+    }
+    addToast(folderModal.folder ? 'Folder updated' : 'Folder created', 'success');
+  }, [folderModal.folder, addToast]);
+
+  const handleDeleteFolder = useCallback((folderId: string) => {
+    if (window.confirm('Delete this folder? Prompts will be moved to "No Folder".')) {
+      setFolders(prev => prev.filter(f => f.id !== folderId));
+      setPrompts(prev => prev.map(p =>
+        p.folderId === folderId ? { ...p, folderId: null } : p
+      ));
+      if (selectedFolderId === folderId) setSelectedFolderId(null);
+      addToast('Folder deleted', 'info');
+    }
+  }, [selectedFolderId, addToast]);
+
+  // Filter & Sort
   const filteredPrompts = useMemo(() => {
     let result = prompts;
+
+    // Folder filter
+    if (selectedFolderId) {
+      result = result.filter(p => p.folderId === selectedFolderId);
+    }
 
     // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(p => 
-        p.title.toLowerCase().includes(q) || 
+      result = result.filter(p =>
+        p.title.toLowerCase().includes(q) ||
         p.content.toLowerCase().includes(q) ||
         p.tags.some(t => t.toLowerCase().includes(q))
       );
     }
 
-    // Sort
+    // Sort - pinned always first
     result = [...result].sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+
       if (sortOption === SortOption.NEWEST) return b.updatedAt - a.updatedAt;
       if (sortOption === SortOption.OLDEST) return a.updatedAt - b.updatedAt;
       if (sortOption === SortOption.AZ) return a.title.localeCompare(b.title);
@@ -99,147 +283,331 @@ const App: React.FC = () => {
     });
 
     return result;
-  }, [prompts, searchQuery, sortOption]);
+  }, [prompts, searchQuery, sortOption, selectedFolderId]);
 
-  const displayedPrompts = useMemo(() => {
-     // If user clicked "Favorites" in sidebar, we might filter here
-     // But for simplicity, let's just use the search/sort filtered list
-     // In a real app, Sidebar would pass a filter type, not just ViewState
-     // Let's assume ViewState 'LIST' shows all, but we can add a filter prop later.
-     // For now, if we want to support 'Favorites' view:
-     return filteredPrompts; 
-  }, [filteredPrompts]);
-  
-  const selectedPrompt = useMemo(() => 
+  const selectedPrompt = useMemo(() =>
     prompts.find(p => p.id === selectedPromptId) || null
-  , [prompts, selectedPromptId]);
+    , [prompts, selectedPromptId]);
+
+  const pinnedCount = useMemo(() => prompts.filter(p => p.isPinned).length, [prompts]);
+  const favoritesCount = useMemo(() => prompts.filter(p => p.isFavorite).length, [prompts]);
+
+  // ----- Settings View -----
+  const renderSettings = () => (
+    <div style={{
+      flex: 1,
+      padding: 'var(--space-8)',
+      background: 'var(--color-bg-primary)',
+      overflowY: 'auto',
+    }}>
+      <div style={{ maxWidth: 600, margin: '0 auto' }}>
+        <h2 style={{
+          fontSize: 'var(--text-2xl)',
+          fontWeight: 700,
+          marginBottom: 'var(--space-6)',
+        }}>
+          Settings
+        </h2>
+
+        {/* Data Management */}
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <h3 style={{
+            fontSize: 'var(--text-base)',
+            fontWeight: 600,
+            marginBottom: 'var(--space-3)',
+          }}>
+            Data Management
+          </h3>
+          <p style={{
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-text-secondary)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            Export your prompts and folders or import from a backup.
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                const data = exportData(prompts, folders);
+                const blob = new Blob([data], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `promptvault-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                addToast('Export complete', 'success');
+              }}
+            >
+              <Icons.Download size={16} />
+              Export JSON
+            </button>
+            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+              <Icons.Upload size={16} />
+              Import JSON
+              <input
+                type="file"
+                accept=".json"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const result = importData(ev.target?.result as string);
+                    if (result) {
+                      setPrompts(result.prompts);
+                      setFolders(result.folders);
+                      addToast(`Imported ${result.prompts.length} prompts`, 'success');
+                    } else {
+                      addToast('Import failed', 'error');
+                    }
+                  };
+                  reader.readAsText(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <button
+              className="btn btn-danger"
+              onClick={() => {
+                if (window.confirm('Clear ALL data? This cannot be undone.')) {
+                  setPrompts([]);
+                  setFolders([]);
+                  localStorage.clear();
+                  addToast('All data cleared', 'info');
+                }
+              }}
+            >
+              <Icons.Trash2 size={16} />
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        {/* About */}
+        <div className="card">
+          <h3 style={{
+            fontSize: 'var(--text-base)',
+            fontWeight: 600,
+            marginBottom: 'var(--space-3)',
+          }}>
+            About
+          </h3>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+            <strong>PromptVault Pro</strong> v2.0
+          </p>
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+            SOTA Prompt Management System
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="flex h-screen w-full bg-white text-gray-900 font-sans overflow-hidden">
-      
-      {/* Sidebar */}
-      <Sidebar 
-        activeView={activeView} 
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      width: '100%',
+      overflow: 'hidden',
+    }}>
+      <Sidebar
+        activeView={activeView}
         onChangeView={(view) => {
           if (view === 'CREATE') {
             handleCreatePrompt();
           } else {
             setActiveView(view);
           }
-        }} 
+        }}
         totalPrompts={prompts.length}
-        favoritesCount={prompts.filter(p => p.isFavorite).length}
+        favoritesCount={favoritesCount}
+        pinnedCount={pinnedCount}
+        folders={folders}
+        selectedFolderId={selectedFolderId}
+        onSelectFolder={setSelectedFolderId}
+        onCreateFolder={handleCreateFolder}
+        onEditFolder={(folder) => setFolderModal({ isOpen: true, folder })}
+        onDeleteFolder={handleDeleteFolder}
+        onOpenCommandPalette={commandPalette.open}
       />
 
-      {/* Main List Column */}
-      <div className={`w-80 border-r border-gray-200 bg-white flex flex-col ${activeView === 'SETTINGS' ? 'hidden' : 'flex'}`}>
-        <div className="p-4 border-b border-gray-100">
-          <div className="relative">
-            <Icons.Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search prompts..." 
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all"
-            />
-          </div>
-          <div className="flex justify-between items-center mt-3 px-1">
-             <span className="text-xs font-semibold text-gray-400 uppercase">{displayedPrompts.length} Prompts</span>
-             <select 
-              value={sortOption}
-              onChange={(e) => setSortOption(e.target.value as SortOption)}
-              className="text-xs border-none bg-transparent text-gray-500 font-medium focus:ring-0 cursor-pointer hover:text-gray-800"
-             >
-               <option value={SortOption.NEWEST}>Newest</option>
-               <option value={SortOption.OLDEST}>Oldest</option>
-               <option value={SortOption.AZ}>A-Z</option>
-             </select>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
-          {displayedPrompts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm p-6 text-center">
-              <p>No prompts found.</p>
-              <button onClick={handleCreatePrompt} className="text-blue-500 hover:underline mt-2">Create one?</button>
+      {/* Main Content */}
+      {activeView === 'SETTINGS' ? renderSettings() : (
+        <>
+          {/* List Column */}
+          <div style={{
+            width: 320,
+            borderRight: '1px solid var(--color-border)',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--color-bg-primary)',
+          }}>
+            {/* Search */}
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border)' }}>
+              <div style={{ position: 'relative' }}>
+                <Icons.Search
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--color-text-tertiary)',
+                  }}
+                />
+                <input
+                  type="text"
+                  className="input"
+                  style={{ paddingLeft: 36 }}
+                  placeholder="Search prompts..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 'var(--space-3)',
+                padding: '0 var(--space-1)',
+              }}>
+                <span style={{
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 600,
+                  color: 'var(--color-text-tertiary)',
+                  textTransform: 'uppercase',
+                }}>
+                  {filteredPrompts.length} Prompt{filteredPrompts.length !== 1 ? 's' : ''}
+                </span>
+                <select
+                  value={sortOption}
+                  onChange={e => setSortOption(e.target.value as SortOption)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value={SortOption.NEWEST}>Newest</option>
+                  <option value={SortOption.OLDEST}>Oldest</option>
+                  <option value={SortOption.AZ}>A-Z</option>
+                </select>
+              </div>
             </div>
-          ) : (
-            displayedPrompts.map(prompt => (
-              <PromptCard 
-                key={prompt.id}
-                prompt={prompt}
-                isSelected={selectedPromptId === prompt.id}
-                onClick={() => {
-                  setSelectedPromptId(prompt.id);
-                  setIsEditing(false);
-                }}
-                onToggleFavorite={(e) => handleToggleFavorite(e, prompt.id)}
-                searchQuery={searchQuery}
-              />
-            ))
-          )}
-        </div>
-      </div>
 
-      {/* Detail / Edit View */}
-      {activeView === 'SETTINGS' ? (
-        <div className="flex-1 p-10 bg-gray-50">
-          <h2 className="text-2xl font-bold mb-6">Settings</h2>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 max-w-2xl">
-             <div className="mb-4">
-                <h3 className="font-semibold mb-2">Data Management</h3>
-                <p className="text-sm text-gray-500 mb-4">Export your prompts to JSON or clear local storage.</p>
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => {
-                      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(prompts));
-                      const downloadAnchorNode = document.createElement('a');
-                      downloadAnchorNode.setAttribute("href",     dataStr);
-                      downloadAnchorNode.setAttribute("download", "prompt_vault_backup.json");
-                      document.body.appendChild(downloadAnchorNode); // required for firefox
-                      downloadAnchorNode.click();
-                      downloadAnchorNode.remove();
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
-                  >
-                    Export JSON
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if(window.confirm('Clear all data? This cannot be undone.')) {
-                        setPrompts([]);
-                        localStorage.clear();
-                        window.location.reload();
-                      }
-                    }}
-                    className="px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-md text-sm hover:bg-red-100"
-                  >
-                    Clear All Data
-                  </button>
+            {/* List */}
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {filteredPrompts.length === 0 ? (
+                <div className="empty-state">
+                  <Icons.Inbox size={48} style={{ opacity: 0.3, marginBottom: 'var(--space-4)' }} />
+                  <p className="empty-state-title">No prompts</p>
+                  <p className="empty-state-description">
+                    {searchQuery ? 'Try a different search' : 'Create your first prompt'}
+                  </p>
+                  {!searchQuery && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ marginTop: 'var(--space-4)' }}
+                      onClick={handleCreatePrompt}
+                    >
+                      <Icons.Plus size={16} />
+                      New Prompt
+                    </button>
+                  )}
                 </div>
-             </div>
-             <div className="border-t border-gray-100 pt-4 mt-4">
-                <h3 className="font-semibold mb-2">About</h3>
-                <p className="text-sm text-gray-500">PromptVault v1.0.0 (Web Edition)</p>
-                <p className="text-xs text-gray-400 mt-1">Built with React, Tailwind, and Gemini API.</p>
-             </div>
+              ) : (
+                filteredPrompts.map(prompt => (
+                  <PromptCard
+                    key={prompt.id}
+                    prompt={prompt}
+                    isSelected={selectedPromptId === prompt.id}
+                    onClick={() => {
+                      setSelectedPromptId(prompt.id);
+                      setIsEditing(false);
+                    }}
+                    onToggleFavorite={(e) => handleToggleFavorite(e, prompt.id)}
+                    onTogglePin={(e) => handleTogglePin(e, prompt.id)}
+                    searchQuery={searchQuery}
+                  />
+                ))
+              )}
+            </div>
           </div>
-        </div>
-      ) : (
-        <DetailView 
-          prompt={selectedPrompt}
-          onEdit={handleUpdatePrompt}
-          onDelete={handleDeletePrompt}
-          onCopy={handleCopy}
-          isEditing={isEditing}
-          setIsEditing={setIsEditing}
-          onNotify={addToast}
+
+          {/* Detail View */}
+          <DetailView
+            prompt={selectedPrompt}
+            folders={folders}
+            onEdit={handleUpdatePrompt}
+            onDelete={handleDeletePrompt}
+            onCopy={handleCopy}
+            onCopyWithVariables={handleCopyWithVariables}
+            onDuplicate={handleDuplicate}
+            isEditing={isEditing}
+            setIsEditing={setIsEditing}
+            onNotify={addToast}
+          />
+        </>
+      )}
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={commandPalette.isOpen}
+        onClose={commandPalette.close}
+        prompts={prompts}
+        folders={folders}
+        onSelectPrompt={(id) => {
+          setSelectedPromptId(id);
+          setActiveView('LIST');
+          setIsEditing(false);
+        }}
+        onCreatePrompt={handleCreatePrompt}
+        onOpenSettings={() => setActiveView('SETTINGS')}
+        onToggleTheme={() => {
+          const themes: ('light' | 'dark' | 'system')[] = ['light', 'dark', 'system'];
+          const idx = themes.indexOf(theme);
+          setTheme(themes[(idx + 1) % themes.length]);
+        }}
+      />
+
+      {/* Folder Modal */}
+      {folderModal.isOpen && (
+        <FolderModal
+          folder={folderModal.folder}
+          onSave={handleSaveFolder}
+          onClose={() => setFolderModal({ isOpen: false })}
         />
       )}
 
+      {/* Variable Modal */}
+      {variableModal.isOpen && (
+        <VariableModal
+          content={variableModal.content}
+          onCopy={(content) => {
+            handleCopy(content);
+            setVariableModal({ isOpen: false, content: '' });
+          }}
+          onClose={() => setVariableModal({ isOpen: false, content: '' })}
+        />
+      )}
+
+      {/* Toasts */}
       <ToastContainer notifications={toasts} removeNotification={removeToast} />
     </div>
+  );
+};
+
+// ----- App with Providers -----
+const App: React.FC = () => {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 };
 

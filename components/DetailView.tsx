@@ -1,23 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { Prompt } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Prompt, Folder, extractVariables, PromptVersion } from '../types';
 import { Icons } from './Icon';
 import { optimizePromptContent } from '../services/geminiService';
+import { createPromptVersion } from '../services/storageService';
 
 interface DetailViewProps {
   prompt: Prompt | null;
+  folders: Folder[];
   onEdit: (updatedPrompt: Prompt) => void;
   onDelete: (id: string) => void;
   onCopy: (content: string) => void;
+  onCopyWithVariables: (content: string) => void;
+  onDuplicate: (prompt: Prompt) => void;
   isEditing: boolean;
   setIsEditing: (editing: boolean) => void;
-  onNotify: (msg: string, type: 'success'|'error'|'info') => void;
+  onNotify: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
-export const DetailView: React.FC<DetailViewProps> = ({ 
-  prompt, 
-  onEdit, 
-  onDelete, 
-  onCopy, 
+export const DetailView: React.FC<DetailViewProps> = ({
+  prompt,
+  folders,
+  onEdit,
+  onDelete,
+  onCopy,
+  onCopyWithVariables,
+  onDuplicate,
   isEditing,
   setIsEditing,
   onNotify
@@ -25,6 +32,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
   const [formData, setFormData] = useState<Partial<Prompt>>({});
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [showVersions, setShowVersions] = useState(false);
 
   useEffect(() => {
     if (prompt) {
@@ -35,16 +43,42 @@ export const DetailView: React.FC<DetailViewProps> = ({
         content: '',
         tags: [],
         isFavorite: false,
+        isPinned: false,
+        folderId: null,
       });
     }
     setTagInput('');
+    setShowVersions(false);
   }, [prompt]);
+
+  const variables = useMemo(() =>
+    extractVariables(formData.content || ''),
+    [formData.content]
+  );
+
+  const wordCount = useMemo(() => {
+    const content = formData.content || '';
+    const words = content.trim().split(/\s+/).filter(Boolean).length;
+    const chars = content.length;
+    return { words, chars };
+  }, [formData.content]);
 
   if (!prompt && !isEditing) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-300 h-full bg-white select-none">
-        <Icons.Layout size={64} className="mb-4 opacity-20" />
-        <p className="text-lg font-medium">Select a prompt to view details</p>
+      <div
+        className="empty-state"
+        style={{
+          flex: 1,
+          background: 'var(--color-bg-primary)',
+        }}
+      >
+        <div className="empty-state-icon">
+          <Icons.FileText size={64} />
+        </div>
+        <p className="empty-state-title">Select a prompt</p>
+        <p className="empty-state-description">
+          Choose a prompt from the list to view or edit it, or create a new one.
+        </p>
       </div>
     );
   }
@@ -54,14 +88,18 @@ export const DetailView: React.FC<DetailViewProps> = ({
       onNotify('Title and Content are required', 'error');
       return;
     }
-    
+
+    // Create version before saving
+    const promptWithVersion = prompt?.content !== formData.content
+      ? createPromptVersion({ ...prompt!, ...formData as Prompt })
+      : { ...prompt!, ...formData as Prompt };
+
     const updatedPrompt: Prompt = {
-      ...prompt!, 
-      ...formData as Prompt,
+      ...promptWithVersion,
       updatedAt: Date.now(),
-      id: prompt?.id || Date.now().toString() // Fallback if creating new here
+      id: prompt?.id || Date.now().toString(),
     };
-    
+
     onEdit(updatedPrompt);
     setIsEditing(false);
     onNotify('Prompt saved successfully', 'success');
@@ -75,7 +113,7 @@ export const DetailView: React.FC<DetailViewProps> = ({
       setFormData(prev => ({ ...prev, content: optimized }));
       onNotify('Prompt optimized by Gemini!', 'success');
     } catch (e) {
-      onNotify('Failed to optimize prompt. Check API key.', 'error');
+      onNotify('Failed to optimize. Check API key.', 'error');
     } finally {
       setIsOptimizing(false);
     }
@@ -95,150 +133,486 @@ export const DetailView: React.FC<DetailViewProps> = ({
     setFormData(prev => ({ ...prev, tags: prev.tags?.filter(t => t !== tagToRemove) }));
   };
 
+  const handleCopy = () => {
+    if (!prompt?.content) return;
+    if (variables.length > 0) {
+      onCopyWithVariables(prompt.content);
+    } else {
+      onCopy(prompt.content);
+    }
+  };
+
+  const restoreVersion = (version: PromptVersion) => {
+    setFormData(prev => ({
+      ...prev,
+      title: version.title,
+      content: version.content,
+    }));
+    setShowVersions(false);
+    setIsEditing(true);
+    onNotify('Version restored. Save to apply changes.', 'info');
+  };
+
+  // ----- EDITING VIEW -----
   if (isEditing) {
     return (
-      <div className="flex-1 flex flex-col h-full bg-white">
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--color-bg-primary)',
+      }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-white">
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: 'var(--space-4) var(--space-6)',
+          borderBottom: '1px solid var(--color-border)',
+          background: 'var(--color-bg-primary)',
+        }}>
           <input
             type="text"
             value={formData.title}
             onChange={e => setFormData({ ...formData, title: e.target.value })}
             placeholder="Prompt Title"
-            className="text-2xl font-bold text-gray-900 placeholder-gray-300 border-none outline-none focus:ring-0 w-full bg-transparent"
+            style={{
+              fontSize: 'var(--text-xl)',
+              fontWeight: 700,
+              color: 'var(--color-text-primary)',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              flex: 1,
+              marginRight: 'var(--space-4)',
+            }}
           />
-          <div className="flex items-center gap-3">
-             <button
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button
               onClick={() => setIsEditing(false)}
-              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+              className="btn btn-ghost"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="flex items-center gap-2 px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors shadow-sm"
+              className="btn btn-primary"
             >
               <Icons.Save size={16} />
-              Save Changes
+              Save
             </button>
           </div>
         </div>
 
         {/* Editor Body */}
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-4xl mx-auto space-y-6">
-            
-            {/* Tags Input */}
-            <div>
-               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tags</label>
-               <div className="flex flex-wrap gap-2 p-2 border border-gray-200 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 transition-all bg-white">
-                  {formData.tags?.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm">
-                      {tag}
-                      <button onClick={() => removeTag(tag)} className="hover:text-red-500"><Icons.X size={12}/></button>
-                    </span>
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: 'var(--space-6)',
+        }}>
+          <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+
+            {/* Folder & Options */}
+            <div style={{
+              display: 'flex',
+              gap: 'var(--space-4)',
+              marginBottom: 'var(--space-4)',
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 600,
+                  color: 'var(--color-text-tertiary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: 'var(--space-1)',
+                }}>
+                  Folder
+                </label>
+                <select
+                  className="input"
+                  value={formData.folderId || ''}
+                  onChange={e => setFormData({ ...formData, folderId: e.target.value || null })}
+                >
+                  <option value="">No Folder</option>
+                  {folders.map(f => (
+                    <option key={f.id} value={f.id}>{f.icon} {f.name}</option>
                   ))}
-                  <input 
-                    className="flex-1 outline-none min-w-[120px] text-sm bg-transparent"
-                    placeholder="Type tag & hit Enter..."
-                    value={tagInput}
-                    onChange={e => setTagInput(e.target.value)}
-                    onKeyDown={handleAddTag}
-                  />
-               </div>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'flex-end' }}>
+                <button
+                  onClick={() => setFormData(prev => ({ ...prev, isPinned: !prev.isPinned }))}
+                  className={`btn ${formData.isPinned ? 'btn-primary' : 'btn-secondary'}`}
+                  title="Pin to top"
+                >
+                  <Icons.Pin size={16} />
+                </button>
+                <button
+                  onClick={() => setFormData(prev => ({ ...prev, isFavorite: !prev.isFavorite }))}
+                  className={`btn ${formData.isFavorite ? 'btn-primary' : 'btn-secondary'}`}
+                  title="Add to favorites"
+                  style={{ color: formData.isFavorite ? 'var(--color-warning)' : undefined }}
+                >
+                  <Icons.Star size={16} fill={formData.isFavorite ? 'currentColor' : 'none'} />
+                </button>
+              </div>
             </div>
 
-            {/* Main Content Area */}
-            <div className="relative">
-              <label className="flex justify-between items-end mb-2">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Prompt Content</span>
+            {/* Tags Input */}
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={{
+                display: 'block',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 600,
+                color: 'var(--color-text-tertiary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                marginBottom: 'var(--space-1)',
+              }}>
+                Tags
+              </label>
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--color-bg-secondary)',
+              }}>
+                {formData.tags?.map(tag => (
+                  <span key={tag} className="tag">
+                    {tag}
+                    <button
+                      onClick={() => removeTag(tag)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        marginLeft: 4,
+                        color: 'inherit',
+                      }}
+                    >
+                      <Icons.X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={handleAddTag}
+                  placeholder="Add tag..."
+                  style={{
+                    flex: 1,
+                    minWidth: 100,
+                    border: 'none',
+                    outline: 'none',
+                    background: 'transparent',
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Content */}
+            <div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 'var(--space-2)',
+              }}>
+                <label style={{
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 600,
+                  color: 'var(--color-text-tertiary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  Content
+                </label>
                 <button
                   onClick={handleOptimize}
-                  disabled={isOptimizing}
-                  className="flex items-center gap-1.5 text-xs font-medium text-purple-600 hover:text-purple-700 bg-purple-50 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                  disabled={isOptimizing || !formData.content}
+                  className="btn btn-ghost"
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    padding: 'var(--space-1) var(--space-2)',
+                    color: 'var(--color-accent)',
+                  }}
                 >
-                  <Icons.Wand2 size={12} />
+                  <Icons.Sparkles size={14} />
                   {isOptimizing ? 'Optimizing...' : 'AI Optimize'}
                 </button>
-              </label>
+              </div>
               <textarea
                 value={formData.content}
                 onChange={e => setFormData({ ...formData, content: e.target.value })}
-                placeholder="Write your prompt here..."
-                className="w-full h-[50vh] p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none resize-none font-mono text-sm leading-relaxed text-gray-900 bg-white"
+                placeholder="Write your prompt here... Use {{variable_name}} for dynamic values."
+                className="input textarea"
+                style={{
+                  minHeight: '400px',
+                  fontFamily: 'var(--font-mono)',
+                }}
               />
             </div>
 
+            {/* Variables Preview */}
+            {variables.length > 0 && (
+              <div style={{
+                marginTop: 'var(--space-4)',
+                padding: 'var(--space-3)',
+                background: 'var(--color-accent-bg)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-accent-border)',
+              }}>
+                <p style={{
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 600,
+                  color: 'var(--color-accent)',
+                  marginBottom: 'var(--space-2)',
+                }}>
+                  <Icons.Zap size={12} style={{ marginRight: 4 }} />
+                  {variables.length} Variable{variables.length !== 1 ? 's' : ''} Detected
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                  {variables.map(v => (
+                    <span key={v.name} className="variable-highlight">
+                      {`{{${v.name}}}`}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Word Count Footer */}
+        <div className="word-count">
+          <span><Icons.Type size={12} /> {wordCount.words} words</span>
+          <span><Icons.Hash size={12} /> {wordCount.chars} characters</span>
         </div>
       </div>
     );
   }
 
-  // READ ONLY VIEW
+  // ----- READ VIEW -----
   return (
-    <div className="flex-1 flex flex-col h-full bg-white relative">
-       {/* Toolbar */}
-       <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-         <h2 className="text-2xl font-bold text-gray-900 truncate max-w-2xl">{prompt?.title}</h2>
-         <div className="flex items-center gap-2">
-           <button
-             onClick={() => {
-                if(prompt?.content) onCopy(prompt.content);
-             }}
-             className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-             title="Copy to Clipboard"
-           >
-             <Icons.Copy size={20} />
-           </button>
-           <button
-             onClick={() => setIsEditing(true)}
-             className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all"
-             title="Edit"
-           >
-             <Icons.Edit2 size={20} />
-           </button>
-           <button
-             onClick={() => prompt && onDelete(prompt.id)}
-             className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-             title="Delete"
-           >
-             <Icons.Trash2 size={20} />
-           </button>
-         </div>
-       </div>
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--color-bg-primary)',
+    }}>
+      {/* Toolbar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 'var(--space-4) var(--space-6)',
+        borderBottom: '1px solid var(--color-border)',
+        background: 'var(--glass-bg)',
+        backdropFilter: 'blur(8px)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          {prompt?.isPinned && (
+            <Icons.Pin size={16} style={{ color: 'var(--color-accent)' }} />
+          )}
+          <h2 style={{
+            fontSize: 'var(--text-xl)',
+            fontWeight: 700,
+            color: 'var(--color-text-primary)',
+            margin: 0,
+          }}>
+            {prompt?.title}
+          </h2>
+          {prompt?.isFavorite && (
+            <Icons.Star size={16} fill="currentColor" style={{ color: 'var(--color-warning)' }} />
+          )}
+        </div>
 
-       {/* Content */}
-       <div className="flex-1 overflow-y-auto p-8">
-         <div className="max-w-4xl mx-auto">
-            {prompt?.tags && prompt.tags.length > 0 && (
-              <div className="flex gap-2 mb-6">
-                {prompt.tags.map(tag => (
-                  <span key={tag} className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
-            
-            <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm relative group">
-              <button 
-                onClick={() => prompt?.content && onCopy(prompt.content)}
-                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-gray-50 border border-gray-200 shadow-sm rounded-md hover:text-blue-600"
-              >
-                <Icons.Copy size={16}/>
-              </button>
-              <pre className="whitespace-pre-wrap font-mono text-sm text-gray-900 leading-relaxed font-normal">
-                {prompt?.content}
-              </pre>
+        <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+          <button
+            onClick={handleCopy}
+            className="btn btn-primary"
+            title={variables.length > 0 ? 'Copy with variables' : 'Copy to clipboard'}
+          >
+            <Icons.Copy size={16} />
+            {variables.length > 0 ? 'Smart Copy' : 'Copy'}
+          </button>
+          <button
+            onClick={() => setIsEditing(true)}
+            className="btn btn-ghost btn-icon"
+            title="Edit"
+          >
+            <Icons.Edit2 size={18} />
+          </button>
+          <button
+            onClick={() => prompt && onDuplicate(prompt)}
+            className="btn btn-ghost btn-icon"
+            title="Duplicate"
+          >
+            <Icons.Copy size={18} />
+          </button>
+          {prompt?.versions && prompt.versions.length > 0 && (
+            <button
+              onClick={() => setShowVersions(!showVersions)}
+              className={`btn btn-ghost btn-icon ${showVersions ? 'btn-secondary' : ''}`}
+              title="Version history"
+            >
+              <Icons.History size={18} />
+            </button>
+          )}
+          <button
+            onClick={() => prompt && onDelete(prompt.id)}
+            className="btn btn-ghost btn-icon"
+            style={{ color: 'var(--color-error)' }}
+            title="Delete"
+          >
+            <Icons.Trash2 size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: 'var(--space-6)',
+        display: 'flex',
+        gap: 'var(--space-6)',
+      }}>
+        <div style={{ flex: 1, maxWidth: '800px', margin: '0 auto' }}>
+          {/* Tags */}
+          {prompt?.tags && prompt.tags.length > 0 && (
+            <div style={{
+              display: 'flex',
+              gap: 'var(--space-2)',
+              marginBottom: 'var(--space-4)',
+              flexWrap: 'wrap',
+            }}>
+              {prompt.tags.map(tag => (
+                <span key={tag} className="tag">#{tag}</span>
+              ))}
             </div>
-            
-            <div className="mt-8 pt-8 border-t border-gray-100 text-xs text-gray-400 flex justify-between">
-              <span>Created: {new Date(prompt!.createdAt).toLocaleString()}</span>
-              <span>Last Edited: {new Date(prompt!.updatedAt).toLocaleString()}</span>
+          )}
+
+          {/* Variables indicator */}
+          {variables.length > 0 && (
+            <div style={{
+              marginBottom: 'var(--space-4)',
+              padding: 'var(--space-3)',
+              background: 'var(--color-accent-bg)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-accent-border)',
+            }}>
+              <p style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-accent)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+              }}>
+                <Icons.Zap size={16} />
+                This prompt contains {variables.length} variable{variables.length !== 1 ? 's' : ''}.
+                Click "Smart Copy" to fill them in.
+              </p>
             </div>
-         </div>
-       </div>
+          )}
+
+          {/* Content Card */}
+          <div className="card" style={{ position: 'relative' }}>
+            <pre style={{
+              whiteSpace: 'pre-wrap',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-text-primary)',
+              lineHeight: 1.7,
+              margin: 0,
+            }}>
+              {prompt?.content}
+            </pre>
+          </div>
+
+          {/* Metadata */}
+          <div style={{
+            marginTop: 'var(--space-6)',
+            paddingTop: 'var(--space-4)',
+            borderTop: '1px solid var(--color-border)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-text-tertiary)',
+          }}>
+            <span>Created: {new Date(prompt!.createdAt).toLocaleString()}</span>
+            <span>Updated: {new Date(prompt!.updatedAt).toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Version History Panel */}
+        {showVersions && prompt?.versions && prompt.versions.length > 0 && (
+          <div style={{
+            width: 280,
+            background: 'var(--color-bg-secondary)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-4)',
+            height: 'fit-content',
+            position: 'sticky',
+            top: 'var(--space-4)',
+          }}>
+            <h4 style={{
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              color: 'var(--color-text-primary)',
+              marginBottom: 'var(--space-3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+            }}>
+              <Icons.History size={16} />
+              Version History
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              {prompt.versions.map((v, i) => (
+                <div
+                  key={v.id}
+                  className="card"
+                  style={{
+                    padding: 'var(--space-3)',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => restoreVersion(v)}
+                >
+                  <p style={{
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 500,
+                    color: 'var(--color-text-primary)',
+                    marginBottom: 4,
+                  }}>
+                    {i === 0 ? 'Previous' : `Version ${prompt.versions.length - i}`}
+                  </p>
+                  <p style={{
+                    fontSize: '10px',
+                    color: 'var(--color-text-tertiary)',
+                  }}>
+                    {new Date(v.savedAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
