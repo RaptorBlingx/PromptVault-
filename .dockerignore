@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+*/dist/
+
+# Bubble app (built separately on Windows)
+bubble/
+
+# Development files
+.git/
+.gitignore
+*.md
+.env*
+
+# Server data (will be created in container)
+server/data/
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

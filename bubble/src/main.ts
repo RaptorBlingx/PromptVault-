@@ -61,7 +61,7 @@ function createWindow(): void {
         mainWindow.loadURL('http://localhost:5174');
         // mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
-        mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+        mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
     }
 
     // Save position when moved

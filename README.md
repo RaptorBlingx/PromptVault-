@@ -67,81 +67,43 @@
 
 ---
 
-## 🚀 Quick Start
-
-### Option 1: Docker (Recommended)
-
-```bash
-git clone https://github.com/RaptorBlingx/PromptVault.git
-cd PromptVault
-docker compose up -d --build
-```
-
-- **Web UI**: [http://localhost:2528](http://localhost:2528)
-- **API**: [http://localhost:2529](http://localhost:2529)
-
-### Option 2: Local Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start web app (port 5173)
-npm run dev
-
-# In another terminal, start API server (port 2529)
-cd server
-npm install
-npm run dev
-```
-
----
-
 ## 📦 Server Installation (Ubuntu)
 
 ### Prerequisites
 - Docker & Docker Compose
 - Git
 
-### Step 1: Clone the Repository
+### Step 1: Clone and Navigate
 
 ```bash
 git clone https://github.com/RaptorBlingx/PromptVault.git
 cd PromptVault
 ```
 
-### Step 2: Configure Environment (Optional)
-
-For AI prompt optimization, set your Gemini API key:
-
-```bash
-export API_KEY="your_gemini_api_key"
-```
-
-### Step 3: Build and Start
+### Step 2: Build and Start with Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-### Step 4: Verify Installation
+### Step 3: Verify Installation
 
 ```bash
-# Check web UI
+# Check Web UI (should return HTML)
 curl http://localhost:2528
 
 # Check API health
 curl http://localhost:2529/api/health
 ```
 
-### Step 5: Configure Firewall (if needed)
+### Step 4: Configure Firewall (if needed)
 
 ```bash
 sudo ufw allow 2528/tcp
 sudo ufw allow 2529/tcp
 ```
 
-### Updating
+### Updating the Server
 
 ```bash
 cd PromptVault
@@ -150,42 +112,68 @@ docker compose down
 docker compose up -d --build
 ```
 
+### With AI Optimization (Optional)
+
+```bash
+export API_KEY="your_gemini_api_key"
+docker compose up -d --build
+```
+
 ---
 
 ## 💻 Windows 11 Client Installation (Floating Bubble)
 
 ### Prerequisites
-- Node.js 18+ (for building)
-- Access to the Ubuntu server running PromptVault
+- Node.js 18+ installed
+- Git installed
+- Server running on Ubuntu
 
-### Step 1: Build the Electron App
+### Step 1: Clone the Repository
 
-On a machine with Node.js installed:
+```cmd
+git clone https://github.com/RaptorBlingx/PromptVault.git
+cd PromptVault\bubble
+```
 
-```bash
-cd PromptVault/bubble
+### Step 2: Install Dependencies
+
+```cmd
 npm install
+```
+
+### Step 3: Build and Create Installer
+
+```cmd
 npm run dist:win
 ```
 
 This creates:
-- `release/PromptVault Bubble Setup x.x.x.exe` (Installer)
-- `release/PromptVault Bubble x.x.x.exe` (Portable)
+- `release\PromptVault Bubble Setup x.x.x.exe` (Installer)
+- `release\PromptVault Bubble x.x.x.exe` (Portable)
 
-### Step 2: Install on Windows 11
+### Step 4: Install the App
 
-1. Copy the installer to your Windows 11 PC
-2. Run `PromptVault Bubble Setup x.x.x.exe`
+1. Navigate to `bubble\release\`
+2. Run `PromptVault Bubble Setup 1.0.0.exe`
 3. Follow the installation wizard
 
-### Step 3: Configure Server URL
+### Step 5: Configure Server URL
 
-1. Click the floating bubble (💬) to expand
+1. Click the floating bubble (💬) in the bottom-right corner
 2. Click the ⚙️ (Settings) button
 3. Enter your server URL: `http://YOUR_SERVER_IP:2529`
 4. Click **Save Settings**
 
-### Step 4: Usage
+---
+
+## 🎮 Usage
+
+### Web App (Browser)
+- Open `http://YOUR_SERVER_IP:2528` in your browser
+- Use `Ctrl+K` for Command Palette
+- Use `Ctrl+N` to create new prompt
+
+### Floating Bubble (Windows)
 
 | Action | How to |
 |--------|--------|
@@ -195,7 +183,7 @@ This creates:
 | **Copy prompt** | Click 📋 on any prompt |
 | **Fill variables** | Prompts with `{{vars}}` show a fill dialog |
 | **Open web app** | Click "🌐 Open Full App" |
-| **Access settings** | Right-click tray icon → Settings |
+| **Access settings** | Click ⚙️ or right-click tray icon |
 | **Quit** | Right-click tray icon → Quit |
 
 ---
@@ -217,7 +205,7 @@ This creates:
 
 ---
 
-## � API Reference
+## 🔌 API Reference
 
 Base URL: `http://YOUR_SERVER:2529`
 
@@ -225,7 +213,6 @@ Base URL: `http://YOUR_SERVER:2529`
 |--------|----------|-------------|
 | GET | `/api/health` | Health check with stats |
 | GET | `/api/prompts` | List all prompts |
-| GET | `/api/prompts/:id` | Get single prompt |
 | POST | `/api/prompts` | Create prompt |
 | PUT | `/api/prompts/:id` | Update prompt |
 | DELETE | `/api/prompts/:id` | Delete prompt |
@@ -235,6 +222,33 @@ Base URL: `http://YOUR_SERVER:2529`
 | DELETE | `/api/folders/:id` | Delete folder |
 | GET | `/api/export` | Export all data as JSON |
 | POST | `/api/import` | Import data from JSON |
+
+---
+
+## 🛠️ Local Development
+
+### Web App + API
+
+```bash
+# Install dependencies
+npm install
+
+# Start web app dev server (port 5173)
+npm run dev
+
+# In another terminal, start API server (port 2529)
+cd server
+npm install
+npm run dev
+```
+
+### Electron Bubble (Development)
+
+```bash
+cd bubble
+npm install
+npm run dev
+```
 
 ---
 
@@ -276,7 +290,7 @@ PromptVault/
 
 ---
 
-## �️ Tech Stack
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |-------|------------|
@@ -293,14 +307,9 @@ PromptVault/
 ## 🔧 Troubleshooting
 
 ### Bubble can't connect to server
-1. Check that the server is running: `curl http://YOUR_SERVER:2529/api/health`
+1. Check server is running: `curl http://YOUR_SERVER:2529/api/health`
 2. Verify firewall allows port 2529
 3. Check the server URL in bubble settings
-
-### Data not syncing
-1. Check connection status indicator in bubble footer
-2. Verify both devices can reach the server
-3. Try restarting the bubble app
 
 ### Docker container won't start
 ```bash
@@ -310,6 +319,19 @@ docker compose logs -f
 # Rebuild from scratch
 docker compose down -v
 docker compose up -d --build
+```
+
+### Electron build fails on Windows
+```bash
+# Make sure Node.js 18+ is installed
+node --version
+
+# Clean and rebuild
+rmdir /s /q node_modules
+rmdir /s /q dist
+rmdir /s /q release
+npm install
+npm run dist:win
 ```
 
 ---
