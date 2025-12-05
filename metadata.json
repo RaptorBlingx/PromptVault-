@@ -1,0 +1,5 @@
+{
+  "name": "PromptVault",
+  "description": "A professional, desktop-class prompt management application to organize, edit, and optimize your LLM prompts. Features local storage, one-click copying, and AI-powered prompt enhancement.",
+  "requestFramePermissions": []
+}

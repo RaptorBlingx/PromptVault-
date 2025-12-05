@@ -1,0 +1,9 @@
+services:
+  promptvault:
+    build: .
+    container_name: promptvault
+    restart: always
+    ports:
+      - "2528:80"
+    environment:
+      - API_KEY=${API_KEY}
