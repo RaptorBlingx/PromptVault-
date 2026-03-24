@@ -49,8 +49,6 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  /* This allows dragging the window by holding near the bubble */
-  -webkit-app-region: drag;
 }
 
 .bubble-button {
@@ -65,8 +63,6 @@ body,
   justify-content: center;
   box-shadow: var(--shadow);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  /* Allow dragging the whole bubble — Electron still fires click on tap without movement */
-  -webkit-app-region: drag;
 }
 
 .bubble-button:hover {

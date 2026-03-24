@@ -367,11 +367,43 @@ const App: React.FC = () => {
     const pinnedCount = useMemo(() => prompts.filter(p => p.isPinned).length, [prompts]);
     const favoritesCount = useMemo(() => prompts.filter(p => p.isFavorite).length, [prompts]);
 
+    // ----- Bubble drag-vs-click handling -----
+    const dragState = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(null);
+    const DRAG_THRESHOLD = 5;
+
+    const handleBubbleMouseDown = useCallback((e: React.MouseEvent) => {
+        dragState.current = { startX: e.screenX, startY: e.screenY, isDragging: false };
+
+        const onMouseMove = (ev: MouseEvent) => {
+            if (!dragState.current) return;
+            const dx = ev.screenX - dragState.current.startX;
+            const dy = ev.screenY - dragState.current.startY;
+            if (!dragState.current.isDragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+                dragState.current.isDragging = true;
+            }
+            if (dragState.current.isDragging && window.electronAPI) {
+                window.electronAPI.moveWindow({ x: ev.screenX - 30, y: ev.screenY - 30 });
+            }
+        };
+
+        const onMouseUp = () => {
+            if (dragState.current && !dragState.current.isDragging) {
+                handleExpand(true);
+            }
+            dragState.current = null;
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    }, [handleExpand]);
+
     // ----- Render Bubble -----
     if (!isExpanded) {
         return (
             <div className="bubble-container">
-                <button className="bubble-button" onClick={() => handleExpand(true)}>
+                <button className="bubble-button" onMouseDown={handleBubbleMouseDown}>
                     <span className="bubble-icon">💬</span>
                 </button>
             </div>
