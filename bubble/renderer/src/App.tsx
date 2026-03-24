@@ -33,12 +33,65 @@ function replaceVariables(content: string, values: Record<string, string>): stri
     });
 }
 
+// ----- Toast Component -----
+interface ToastMessage {
+    id: number;
+    type: 'success' | 'error' | 'info';
+    text: string;
+}
+
+const Toast: React.FC<{ toast: ToastMessage; onDismiss: (id: number) => void }> = ({ toast, onDismiss }) => {
+    useEffect(() => {
+        const timer = setTimeout(() => onDismiss(toast.id), 2500);
+        return () => clearTimeout(timer);
+    }, [toast.id, onDismiss]);
+
+    return (
+        <div className={`toast toast-${toast.type}`}>
+            <span>{toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : 'ℹ'}</span>
+            <span>{toast.text}</span>
+        </div>
+    );
+};
+
+// ----- Confirm Dialog Component -----
+const ConfirmDialog: React.FC<{
+    message: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}> = ({ message, onConfirm, onCancel }) => {
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onCancel();
+            if (e.key === 'Enter') onConfirm();
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [onConfirm, onCancel]);
+
+    return (
+        <div className="confirm-overlay" onClick={onCancel}>
+            <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
+                <p className="confirm-message">{message}</p>
+                <div className="confirm-actions">
+                    <button className="confirm-btn cancel" onClick={onCancel}>Cancel</button>
+                    <button className="confirm-btn danger" onClick={onConfirm}>Delete</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ----- Filter Tabs -----
+type FilterTab = 'all' | 'pinned' | 'favorites';
+
 // ----- App Component -----
 const App: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [prompts, setPrompts] = useState<Prompt[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [activeTab, setActiveTab] = useState<FilterTab>('all');
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('checking');
     const [isLoading, setIsLoading] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
@@ -53,9 +106,23 @@ const App: React.FC = () => {
     const [variableModal, setVariableModal] = useState<{ open: boolean; prompt: Prompt | null }>({ open: false, prompt: null });
     const [variableValues, setVariableValues] = useState<Record<string, string>>({});
 
-    // Dragging State
-    const isDragging = useRef(false);
-    const dragOffset = useRef({ x: 0, y: 0 });
+    // Confirm dialog
+    const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; promptId: string | null }>({ open: false, promptId: null });
+
+    // Toasts
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    const toastIdRef = useRef(0);
+
+    const addToast = useCallback((type: ToastMessage['type'], text: string) => {
+        const id = ++toastIdRef.current;
+        setToasts(prev => [...prev, { id, type, text }]);
+    }, []);
+
+    const dismissToast = useCallback((id: number) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
+
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Initialize
     useEffect(() => {
@@ -78,11 +145,31 @@ const App: React.FC = () => {
         }
     }, []);
 
+    // Global keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (variableModal.open) {
+                    setVariableModal({ open: false, prompt: null });
+                } else if (confirmDialog.open) {
+                    setConfirmDialog({ open: false, promptId: null });
+                } else if (editorMode) {
+                    setEditorMode(null);
+                } else if (showSettings) {
+                    setShowSettings(false);
+                } else if (isExpanded) {
+                    handleExpand(false);
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isExpanded, variableModal.open, confirmDialog.open, editorMode, showSettings]);
+
     // Connection status
     useEffect(() => {
         const unsubscribe = apiClient.onConnectionStatusChange(setConnectionStatus);
 
-        // Check connection periodically
         const interval = setInterval(() => {
             apiClient.checkConnection();
         }, 30000);
@@ -110,43 +197,22 @@ const App: React.FC = () => {
             await window.electronAPI.toggleExpand(expand);
         }
         if (expand) {
-            loadData(); // Refresh data when expanding
+            loadData();
+            setTimeout(() => searchInputRef.current?.focus(), 100);
+        } else {
+            setSearchQuery('');
+            setActiveTab('all');
+            setShowSettings(false);
+            setEditorMode(null);
         }
     }, []);
-
-    // ----- Dragging Logic -----
-    const handleMouseDown = (e: React.MouseEvent) => {
-        if (e.button !== 0) return; // Only left click
-        isDragging.current = true;
-        // Store the offset of the mouse relative to the window's top-left corner
-        dragOffset.current = { x: e.clientX, y: e.clientY };
-
-        // Add global listeners
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const handleMouseMove = useCallback((e: MouseEvent) => {
-        if (!isDragging.current) return;
-
-        // Calculate new window position based on screen mouse position and initial offset
-        const newX = e.screenX - dragOffset.current.x;
-        const newY = e.screenY - dragOffset.current.y;
-
-        if (window.electronAPI) {
-            window.electronAPI.moveWindow({ x: newX, y: newY });
-        }
-    }, []);
-
-    const handleMouseUp = () => {
-        isDragging.current = false;
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-    };
 
     // ----- CRUD Logic -----
     const handleSavePrompt = async () => {
-        if (!editorData.title.trim() || !editorData.content.trim()) return;
+        if (!editorData.title.trim() || !editorData.content.trim()) {
+            addToast('error', 'Title and content are required');
+            return;
+        }
 
         if (editorMode === 'create') {
             const newPrompt = {
@@ -160,12 +226,22 @@ const App: React.FC = () => {
                 updatedAt: Date.now(),
                 versions: []
             };
-            await apiClient.createPrompt(newPrompt);
+            const result = await apiClient.createPrompt(newPrompt);
+            if (result) {
+                addToast('success', 'Prompt created');
+            } else {
+                addToast('error', 'Failed to create prompt');
+            }
         } else if (editorMode === 'edit' && editorData.id) {
-            await apiClient.updatePrompt(editorData.id, {
+            const result = await apiClient.updatePrompt(editorData.id, {
                 title: editorData.title,
                 content: editorData.content
             });
+            if (result) {
+                addToast('success', 'Prompt saved');
+            } else {
+                addToast('error', 'Failed to save prompt');
+            }
         }
 
         setEditorMode(null);
@@ -173,10 +249,19 @@ const App: React.FC = () => {
         loadData();
     };
 
-    const handleDeletePrompt = async (id: string) => {
-        if (confirm('Are you sure you want to delete this prompt?')) {
-            await apiClient.deletePrompt(id);
+    const handleDeletePrompt = (id: string) => {
+        setConfirmDialog({ open: true, promptId: id });
+    };
+
+    const confirmDelete = async () => {
+        if (!confirmDialog.promptId) return;
+        const ok = await apiClient.deletePrompt(confirmDialog.promptId);
+        setConfirmDialog({ open: false, promptId: null });
+        if (ok) {
+            addToast('success', 'Prompt deleted');
             loadData();
+        } else {
+            addToast('error', 'Failed to delete prompt');
         }
     };
 
@@ -188,6 +273,16 @@ const App: React.FC = () => {
     const startEdit = (prompt: Prompt) => {
         setEditorMode('edit');
         setEditorData({ title: prompt.title, content: prompt.content, id: prompt.id });
+    };
+
+    const handleTogglePin = async (prompt: Prompt) => {
+        await apiClient.updatePrompt(prompt.id, { isPinned: !prompt.isPinned });
+        loadData();
+    };
+
+    const handleToggleFavorite = async (prompt: Prompt) => {
+        await apiClient.updatePrompt(prompt.id, { isFavorite: !prompt.isFavorite });
+        loadData();
     };
 
     const handleCopy = useCallback(async (prompt: Prompt) => {
@@ -206,13 +301,18 @@ const App: React.FC = () => {
     }, []);
 
     const copyToClipboard = async (text: string, promptId: string) => {
-        if (window.electronAPI) {
-            await window.electronAPI.copyToClipboard(text);
-        } else {
-            await navigator.clipboard.writeText(text);
+        try {
+            if (window.electronAPI) {
+                await window.electronAPI.copyToClipboard(text);
+            } else {
+                await navigator.clipboard.writeText(text);
+            }
+            setCopiedId(promptId);
+            addToast('success', 'Copied to clipboard');
+            setTimeout(() => setCopiedId(null), 1500);
+        } catch {
+            addToast('error', 'Failed to copy');
         }
-        setCopiedId(promptId);
-        setTimeout(() => setCopiedId(null), 1500);
     };
 
     const handleCopyWithVariables = async () => {
@@ -229,14 +329,25 @@ const App: React.FC = () => {
     };
 
     const handleSaveSettings = () => {
+        if (!serverUrl.trim()) {
+            addToast('error', 'Server URL is required');
+            return;
+        }
         apiClient.setBaseUrl(serverUrl);
         setShowSettings(false);
+        addToast('success', 'Settings saved');
         loadData();
     };
 
     // Filter prompts
     const filteredPrompts = useMemo(() => {
         let result = prompts;
+
+        if (activeTab === 'pinned') {
+            result = result.filter(p => p.isPinned);
+        } else if (activeTab === 'favorites') {
+            result = result.filter(p => p.isFavorite);
+        }
 
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
@@ -251,22 +362,45 @@ const App: React.FC = () => {
             if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
             return b.updatedAt - a.updatedAt;
         });
-    }, [prompts, searchQuery]);
+    }, [prompts, searchQuery, activeTab]);
 
-    const pinnedPrompts = useMemo(() => filteredPrompts.filter(p => p.isPinned), [filteredPrompts]);
-    const recentPrompts = useMemo(() => filteredPrompts.filter(p => !p.isPinned).slice(0, 10), [filteredPrompts]);
+    const pinnedCount = useMemo(() => prompts.filter(p => p.isPinned).length, [prompts]);
+    const favoritesCount = useMemo(() => prompts.filter(p => p.isFavorite).length, [prompts]);
 
     // ----- Render Bubble -----
     if (!isExpanded) {
         return (
-            // The container is draggable via our manual handler
-            <div className="bubble-container" onMouseDown={handleMouseDown}>
+            <div className="bubble-container">
                 <button className="bubble-button" onClick={() => handleExpand(true)}>
                     <span className="bubble-icon">💬</span>
                 </button>
             </div>
         );
     }
+
+    // ----- Render Confirm Dialog -----
+    const renderConfirmDialog = () => {
+        if (!confirmDialog.open) return null;
+        return (
+            <ConfirmDialog
+                message="Are you sure you want to delete this prompt? This action cannot be undone."
+                onConfirm={confirmDelete}
+                onCancel={() => setConfirmDialog({ open: false, promptId: null })}
+            />
+        );
+    };
+
+    // ----- Render Toasts -----
+    const renderToasts = () => {
+        if (toasts.length === 0) return null;
+        return (
+            <div className="toast-container">
+                {toasts.map(t => (
+                    <Toast key={t.id} toast={t} onDismiss={dismissToast} />
+                ))}
+            </div>
+        );
+    };
 
     // ----- Render Editor -----
     if (editorMode) {
@@ -295,11 +429,13 @@ const App: React.FC = () => {
                         onChange={e => setEditorData(prev => ({ ...prev, content: e.target.value }))}
                     />
                     <div className="editor-footer">
+                        <button className="cancel-btn" onClick={() => setEditorMode(null)}>Cancel</button>
                         <button className="save-btn" onClick={handleSavePrompt}>
                             {editorMode === 'create' ? 'Create Prompt' : 'Save Changes'}
                         </button>
                     </div>
                 </div>
+                {renderToasts()}
             </div>
         );
     }
@@ -316,6 +452,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="settings-panel">
+                    <div className="variable-prompt-title">{variableModal.prompt.title}</div>
                     {variables.map(v => (
                         <div key={v.name} className="settings-group">
                             <label className="settings-label">{v.name}</label>
@@ -332,6 +469,7 @@ const App: React.FC = () => {
                         📋 Copy with Variables
                     </button>
                 </div>
+                {renderToasts()}
             </div>
         );
     }
@@ -354,11 +492,18 @@ const App: React.FC = () => {
                             className="settings-input"
                             value={serverUrl}
                             onChange={e => setServerUrl(e.target.value)}
-                            placeholder="http://10.33.10.109:2529"
+                            placeholder="http://localhost:2529"
                         />
+                        <span className="settings-hint">The URL of your PromptVault API server</span>
+                    </div>
+                    <div className="settings-group">
+                        <label className="settings-label">Keyboard Shortcut</label>
+                        <div className="shortcut-display">Ctrl + Shift + V</div>
+                        <span className="settings-hint">Toggle the bubble from anywhere</span>
                     </div>
                     <button className="save-btn" onClick={handleSaveSettings}>Save Settings</button>
                 </div>
+                {renderToasts()}
             </div>
         );
     }
@@ -381,6 +526,7 @@ const App: React.FC = () => {
                 <div className="search-wrapper">
                     <span className="search-icon">🔍</span>
                     <input
+                        ref={searchInputRef}
                         type="text"
                         className="search-input"
                         placeholder="Search prompts..."
@@ -388,7 +534,32 @@ const App: React.FC = () => {
                         onChange={e => setSearchQuery(e.target.value)}
                         autoFocus
                     />
+                    {searchQuery && (
+                        <button className="search-clear" onClick={() => setSearchQuery('')}>✕</button>
+                    )}
                 </div>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="filter-tabs">
+                <button
+                    className={`filter-tab ${activeTab === 'all' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('all')}
+                >
+                    All ({prompts.length})
+                </button>
+                <button
+                    className={`filter-tab ${activeTab === 'pinned' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('pinned')}
+                >
+                    📌 ({pinnedCount})
+                </button>
+                <button
+                    className={`filter-tab ${activeTab === 'favorites' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('favorites')}
+                >
+                    ⭐ ({favoritesCount})
+                </button>
             </div>
 
             {/* Prompt List */}
@@ -398,43 +569,24 @@ const App: React.FC = () => {
                 ) : filteredPrompts.length === 0 ? (
                     <div className="empty-state">
                         <span className="empty-icon">📭</span>
-                        <p>{searchQuery ? 'No matching prompts' : 'No prompts yet'}</p>
-                        <button className="save-btn" style={{ marginTop: 10 }} onClick={startCreate}>Create First Prompt</button>
+                        <p>{searchQuery ? 'No matching prompts' : activeTab !== 'all' ? `No ${activeTab} prompts` : 'No prompts yet'}</p>
+                        {activeTab === 'all' && !searchQuery && (
+                            <button className="save-btn" style={{ marginTop: 10 }} onClick={startCreate}>Create First Prompt</button>
+                        )}
                     </div>
                 ) : (
-                    <>
-                        {pinnedPrompts.length > 0 && (
-                            <>
-                                <div className="section-header">📌 Pinned</div>
-                                {pinnedPrompts.map(prompt => (
-                                    <PromptItem
-                                        key={prompt.id}
-                                        prompt={prompt}
-                                        onCopy={handleCopy}
-                                        onEdit={startEdit}
-                                        onDelete={handleDeletePrompt}
-                                        isCopied={copiedId === prompt.id}
-                                    />
-                                ))}
-                            </>
-                        )}
-
-                        {recentPrompts.length > 0 && (
-                            <>
-                                <div className="section-header">⏱️ Recent</div>
-                                {recentPrompts.map(prompt => (
-                                    <PromptItem
-                                        key={prompt.id}
-                                        prompt={prompt}
-                                        onCopy={handleCopy}
-                                        onEdit={startEdit}
-                                        onDelete={handleDeletePrompt}
-                                        isCopied={copiedId === prompt.id}
-                                    />
-                                ))}
-                            </>
-                        )}
-                    </>
+                    filteredPrompts.map(prompt => (
+                        <PromptItem
+                            key={prompt.id}
+                            prompt={prompt}
+                            onCopy={handleCopy}
+                            onEdit={startEdit}
+                            onDelete={handleDeletePrompt}
+                            onTogglePin={handleTogglePin}
+                            onToggleFavorite={handleToggleFavorite}
+                            isCopied={copiedId === prompt.id}
+                        />
+                    ))
                 )}
             </div>
 
@@ -450,6 +602,9 @@ const App: React.FC = () => {
                     </span>
                 </div>
             </div>
+
+            {renderConfirmDialog()}
+            {renderToasts()}
         </div>
     );
 };
@@ -460,27 +615,44 @@ interface PromptItemProps {
     onCopy: (prompt: Prompt) => void;
     onEdit: (prompt: Prompt) => void;
     onDelete: (id: string) => void;
+    onTogglePin: (prompt: Prompt) => void;
+    onToggleFavorite: (prompt: Prompt) => void;
     isCopied: boolean;
 }
 
-const PromptItem: React.FC<PromptItemProps> = ({ prompt, onCopy, onEdit, onDelete, isCopied }) => {
+const PromptItem: React.FC<PromptItemProps> = ({ prompt, onCopy, onEdit, onDelete, onTogglePin, onToggleFavorite, isCopied }) => {
     const hasVariables = extractVariables(prompt.content).length > 0;
 
     return (
-        <div className="prompt-item group">
+        <div className="prompt-item">
             <div className="prompt-info" onClick={() => onCopy(prompt)}>
                 <div className="prompt-title">
-                    {prompt.isFavorite && '⭐ '}
+                    {prompt.isPinned && <span className="badge pin">📌</span>}
+                    {prompt.isFavorite && <span className="badge fav">⭐</span>}
                     {prompt.title}
-                    {hasVariables && ' 📊'}
+                    {hasVariables && <span className="badge var">{'{ }'}</span>}
                 </div>
                 <div className="prompt-preview">
-                    {prompt.content.slice(0, 60)}
-                    {prompt.content.length > 60 ? '...' : ''}
+                    {prompt.content.slice(0, 80)}
+                    {prompt.content.length > 80 ? '...' : ''}
                 </div>
             </div>
             <div className="prompt-actions">
-                <button className="action-btn edit" onClick={(e) => { e.stopPropagation(); onEdit(prompt); }} title="Edit">
+                <button
+                    className={`action-btn ${prompt.isPinned ? 'active' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); onTogglePin(prompt); }}
+                    title={prompt.isPinned ? 'Unpin' : 'Pin'}
+                >
+                    📌
+                </button>
+                <button
+                    className={`action-btn ${prompt.isFavorite ? 'active' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); onToggleFavorite(prompt); }}
+                    title={prompt.isFavorite ? 'Unfavorite' : 'Favorite'}
+                >
+                    {prompt.isFavorite ? '⭐' : '☆'}
+                </button>
+                <button className="action-btn" onClick={(e) => { e.stopPropagation(); onEdit(prompt); }} title="Edit">
                     ✏️
                 </button>
                 <button className="action-btn delete" onClick={(e) => { e.stopPropagation(); onDelete(prompt.id); }} title="Delete">

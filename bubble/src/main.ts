@@ -15,7 +15,7 @@ interface StoreSchema {
 
 const store = new Store<StoreSchema>({
     defaults: {
-        serverUrl: 'http://10.33.10.109:2529',
+        serverUrl: 'http://localhost:2529',
         windowPosition: null,
         isExpanded: false,
     },
@@ -221,7 +221,7 @@ ipcMain.handle('open-web-app', () => {
 });
 
 ipcMain.handle('copy-to-clipboard', (_, text: string) => {
-    const { clipboard } = require('electron');
+    const { clipboard } = require('electron') as typeof import('electron');
     clipboard.writeText(text);
 });
 

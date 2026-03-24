@@ -33,7 +33,7 @@ export interface Folder {
 export type ConnectionStatus = 'connected' | 'disconnected' | 'checking';
 
 class ApiClient {
-    private baseUrl: string = 'http://10.33.10.109:2529';
+    private baseUrl: string = 'http://localhost:2529';
     private connectionStatus: ConnectionStatus = 'checking';
     private statusListeners: ((status: ConnectionStatus) => void)[] = [];
 

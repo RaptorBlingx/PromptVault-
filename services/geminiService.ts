@@ -1,36 +1,25 @@
-import { GoogleGenAI } from "@google/genai";
-
-const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key not found in environment");
+const getApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    return origin.replace(':2528', ':2529');
   }
-  return new GoogleGenAI({ apiKey });
+  return 'http://localhost:2529';
 };
 
 export const optimizePromptContent = async (currentContent: string): Promise<string> => {
   if (!currentContent.trim()) return "";
 
-  try {
-    const ai = getClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `You are an expert Prompt Engineer. 
-      Please rewrite and optimize the following prompt to be more effective, clear, and structured for LLMs. 
-      Retain the original intent but improve clarity, context, and robustness.
-      Do not add markdown backticks around the output, just return the raw improved text.
-      
-      Original Prompt:
-      ${currentContent}`,
-      config: {
-        maxOutputTokens: 2000,
-        temperature: 0.7,
-      }
-    });
+  const response = await fetch(`${getApiBaseUrl()}/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: currentContent }),
+  });
 
-    return response.text?.trim() || currentContent;
-  } catch (error) {
-    console.error("Gemini optimization failed:", error);
-    throw error;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(err.error || 'Failed to optimize prompt');
   }
+
+  const data = await response.json();
+  return data.optimized;
 };
