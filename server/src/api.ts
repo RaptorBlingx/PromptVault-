@@ -181,6 +181,24 @@ router.delete('/folders/:id', (req: Request, res: Response) => {
 
 // ----- Import/Export Routes -----
 
+// ----- Sync Routes (Delta Sync for Mobile) -----
+
+// GET /api/sync/changes?since=<timestamp>
+router.get('/sync/changes', (req: Request, res: Response) => {
+    try {
+        const since = parseInt(req.query.since as string, 10);
+        if (isNaN(since) || since < 0) {
+            res.status(400).json({ error: 'Invalid "since" parameter. Must be a non-negative integer timestamp.' });
+            return;
+        }
+        const changes = db.getChangesSince(since);
+        res.json(changes);
+    } catch (error) {
+        console.error('Failed to get sync changes:', error);
+        res.status(500).json({ error: 'Failed to retrieve sync changes' });
+    }
+});
+
 // POST /api/import - Import data
 router.post('/import', (req: Request, res: Response) => {
     try {

@@ -6,9 +6,10 @@
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](https://github.com/RaptorBlingx/PromptVault)
 [![Electron](https://img.shields.io/badge/Electron-Windows-9b4dca?logo=electron)](https://github.com/RaptorBlingx/PromptVault)
+[![Expo](https://img.shields.io/badge/Expo-SDK_54-000020?logo=expo)](https://github.com/RaptorBlingx/PromptVault)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-🌐 **Web App** + 🫧 **Floating Bubble** for Windows
+🌐 **Web App** + 🫧 **Floating Bubble** for Windows + 📱 **Mobile App** for Android & iOS
 
 </div>
 
@@ -37,10 +38,24 @@
 | 🔍 **Instant Search** | Filter prompts as you type |
 | 📋 **One-Click Copy** | Copy prompts directly to clipboard |
 | 📊 **Variable Fill** | Fill `{{variables}}` before copying |
-| � **Pin & Favorites** | Filter by pinned or favorite prompts |
+| 📌 **Pin & Favorites** | Filter by pinned or favorite prompts |
 | 🔔 **Toast Notifications** | Visual feedback for all actions |
-| �🔄 **Real-time Sync** | Syncs with server automatically |
+| 🔄 **Real-time Sync** | Syncs with server automatically |
 | 🌐 **Open Web App** | Quick launch to full web interface |
+
+### Mobile App (Android & iOS)
+| Feature | Description |
+|---------|-------------|
+| 📱 **Cross-Platform** | React Native with Expo (SDK 54) |
+| 📴 **Offline-First** | Full CRUD with AsyncStorage, works without internet |
+| 🔄 **Google Keep-Style Sync** | Delta sync with conflict resolution |
+| 📁 **Folders & Organization** | Full folder support matching web app |
+| ⚡ **Smart Variables** | Fill `{{variables}}` on mobile |
+| 🔍 **Full-Text Search** | Search prompts by title, content, and tags |
+| 📌 **Pin & Favorites** | Pin and star prompts, sort and filter |
+| 🌙 **Dark Mode** | System-aware theming with manual toggle |
+| 🔔 **Background Sync** | Automatic sync when connectivity is restored |
+| 📋 **One-Tap Copy** | Copy prompts to clipboard instantly |
 
 ---
 
@@ -62,8 +77,19 @@
 │  ┌──────────────────────────────────────────────────────────────┐│
 │  │  Port 2528: Web UI (React + Vite)                            ││
 │  │  Port 2529: REST API (Express.js + SQLite)                   ││
+│  │  GET /api/sync/delta — Delta sync endpoint for mobile        ││
 │  └──────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────┘
+                               ▲
+┌──────────────────────────────┼──────────────────────────────────┐
+│                     MOBILE DEVICE                               │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │          PromptVault Mobile (React Native / Expo)           ││
+│  │  • Offline-first with AsyncStorage                          ││
+│  │  • Google Keep-style delta sync                             ││
+│  │  • Background sync on reconnect                             ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -157,6 +183,58 @@ This creates:
 2. Click the ⚙️ (Settings) button
 3. Enter your server URL: `http://YOUR_SERVER_IP:2529`
 4. Click **Save Settings**
+
+---
+
+## 📱 Mobile App Installation (Android & iOS)
+
+### Prerequisites
+- Node.js 20+
+- Expo Go app installed on your phone ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779))
+- Phone and server on the same network
+
+### Step 1: Navigate to Mobile Directory
+
+```bash
+cd PromptVault/mobile
+```
+
+### Step 2: Install Dependencies
+
+```bash
+npm install
+```
+
+### Step 3: Start Expo Dev Server
+
+```bash
+npx expo start --lan
+```
+
+### Step 4: Connect from Phone
+
+1. Open **Expo Go** on your phone
+2. Scan the QR code shown in the terminal
+3. The app will bundle and load on your device
+
+### Step 5: Configure Server URL
+
+1. Open the **Settings** tab in the mobile app
+2. Enter your server URL: `http://YOUR_SERVER_IP:2529`
+3. Tap **Save** — the app will start syncing
+
+### Building for Production (Standalone APK/IPA)
+
+```bash
+# Install EAS CLI
+npm install -g eas-cli
+
+# Build for Android
+eas build --platform android
+
+# Build for iOS
+eas build --platform ios
+```
 
 ---
 
@@ -266,7 +344,7 @@ PromptVault/
 ├── server/                 # Backend API Server
 │   ├── src/
 │   │   ├── index.ts        # Express server entry
-│   │   ├── api.ts          # REST API routes
+│   │   ├── api.ts          # REST API routes (+ delta sync)
 │   │   └── database.ts     # SQLite database layer
 │   └── package.json
 │
@@ -280,6 +358,27 @@ PromptVault/
 │   │       ├── api.ts      # API client
 │   │       └── styles.css  # Bubble styles
 │   └── package.json
+│
+├── mobile/                 # React Native Mobile App
+│   ├── app/                # Expo Router screens
+│   │   ├── _layout.tsx     # Root layout + providers
+│   │   └── (app)/          # Main app screens
+│   │       ├── index.tsx   # Home — prompt list
+│   │       ├── [id].tsx    # Prompt detail/editor
+│   │       ├── search.tsx  # Full-text search
+│   │       └── settings.tsx# App settings & sync config
+│   ├── src/
+│   │   ├── api/            # API client for server sync
+│   │   ├── components/     # Reusable UI components
+│   │   ├── db/             # AsyncStorage CRUD layer
+│   │   ├── stores/         # Zustand state management
+│   │   ├── sync/           # Delta sync engine + background sync
+│   │   └── theme/          # Design tokens & ThemeProvider
+│   ├── app.json            # Expo configuration
+│   └── package.json
+│
+├── packages/               # Shared code
+│   └── shared/             # Types, utils, variable engine
 │
 ├── Dockerfile              # Multi-stage Docker build
 ├── docker-compose.yml      # Docker orchestration
@@ -298,6 +397,9 @@ PromptVault/
 | **Icons** | Lucide React |
 | **Backend API** | Express.js, better-sqlite3 |
 | **Desktop App** | Electron |
+| **Mobile App** | React Native 0.81, Expo SDK 54, Expo Router |
+| **Mobile Storage** | AsyncStorage (offline-first) |
+| **Mobile State** | Zustand |
 | **Deploy** | Docker, Nginx, Supervisor |
 
 ---
@@ -330,6 +432,18 @@ rmdir /s /q dist
 rmdir /s /q release
 npm install
 npm run dist:win
+```
+
+### Mobile app can't connect to server
+1. Ensure your phone and server are on the same network
+2. Check the server URL in mobile Settings (use LAN IP, not `localhost`)
+3. Verify firewall allows port 2529: `sudo ufw allow 2529/tcp`
+4. Test from phone browser: `http://YOUR_SERVER_IP:2529/api/health`
+
+### Expo Go shows SDK version mismatch
+```bash
+# Check your Expo Go version on phone, then match SDK in mobile/
+npx expo install --fix
 ```
 
 ---

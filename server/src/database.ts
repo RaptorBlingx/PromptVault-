@@ -26,7 +26,7 @@ db.pragma('foreign_keys = ON');
 
 // ----- Schema Definitions -----
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function initializeSchema(): void {
     // Create version table
@@ -49,6 +49,7 @@ function initializeSchema(): void {
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL,
       versions TEXT NOT NULL DEFAULT '[]',
+      deletedAt INTEGER DEFAULT NULL,
       FOREIGN KEY (folderId) REFERENCES folders(id) ON DELETE SET NULL
     );
   `);
@@ -60,7 +61,8 @@ function initializeSchema(): void {
       name TEXT NOT NULL,
       icon TEXT NOT NULL DEFAULT '📁',
       color TEXT NOT NULL DEFAULT '#3B82F6',
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      deletedAt INTEGER DEFAULT NULL
     );
   `);
 
@@ -70,10 +72,18 @@ function initializeSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_prompts_isPinned ON prompts(isPinned);
     CREATE INDEX IF NOT EXISTS idx_prompts_isFavorite ON prompts(isFavorite);
     CREATE INDEX IF NOT EXISTS idx_prompts_updatedAt ON prompts(updatedAt);
+    CREATE INDEX IF NOT EXISTS idx_prompts_deletedAt ON prompts(deletedAt);
+    CREATE INDEX IF NOT EXISTS idx_folders_deletedAt ON folders(deletedAt);
   `);
 
-    // Update schema version
+    // Migrate from v2 → v3: add deletedAt columns if missing
     const currentVersion = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
+    if (currentVersion && currentVersion.version < 3) {
+        try { db.exec('ALTER TABLE prompts ADD COLUMN deletedAt INTEGER DEFAULT NULL'); } catch (_) { /* column already exists */ }
+        try { db.exec('ALTER TABLE folders ADD COLUMN deletedAt INTEGER DEFAULT NULL'); } catch (_) { /* column already exists */ }
+        db.prepare('UPDATE schema_version SET version = ?').run(SCHEMA_VERSION);
+    }
+
     if (!currentVersion) {
         db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(SCHEMA_VERSION);
     }
@@ -138,7 +148,7 @@ interface FolderRow {
 // ----- Prompt Operations -----
 
 export function getAllPrompts(): Prompt[] {
-    const stmt = db.prepare('SELECT * FROM prompts ORDER BY updatedAt DESC');
+    const stmt = db.prepare('SELECT * FROM prompts WHERE deletedAt IS NULL ORDER BY updatedAt DESC');
     const rows = stmt.all() as PromptRow[];
     return rows.map(rowToPrompt);
 }
@@ -204,15 +214,17 @@ export function updatePrompt(id: string, updates: Partial<Prompt>): Prompt | nul
 }
 
 export function deletePrompt(id: string): boolean {
-    const stmt = db.prepare('DELETE FROM prompts WHERE id = ?');
-    const result = stmt.run(id);
+    // Soft delete: set deletedAt timestamp
+    const stmt = db.prepare('UPDATE prompts SET deletedAt = ?, updatedAt = ? WHERE id = ? AND deletedAt IS NULL');
+    const now = Date.now();
+    const result = stmt.run(now, now, id);
     return result.changes > 0;
 }
 
 // ----- Folder Operations -----
 
 export function getAllFolders(): Folder[] {
-    const stmt = db.prepare('SELECT * FROM folders ORDER BY createdAt ASC');
+    const stmt = db.prepare('SELECT * FROM folders WHERE deletedAt IS NULL ORDER BY createdAt ASC');
     const rows = stmt.all() as FolderRow[];
     return rows.map(rowToFolder);
 }
@@ -254,9 +266,12 @@ export function updateFolder(id: string, updates: Partial<Folder>): Folder | nul
 }
 
 export function deleteFolder(id: string): boolean {
-    // Prompts in this folder will have folderId set to NULL (ON DELETE SET NULL)
-    const stmt = db.prepare('DELETE FROM folders WHERE id = ?');
-    const result = stmt.run(id);
+    // Soft delete: set deletedAt timestamp
+    const stmt = db.prepare('UPDATE folders SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL');
+    const now = Date.now();
+    const result = stmt.run(now, id);
+    // Also unlink prompts from this folder
+    db.prepare('UPDATE prompts SET folderId = NULL, updatedAt = ? WHERE folderId = ?').run(now, id);
     return result.changes > 0;
 }
 
@@ -317,6 +332,66 @@ function rowToFolder(row: FolderRow): Folder {
 }
 
 // ----- Stats & Utilities -----
+
+// ----- Delta Sync: Get Changes Since Timestamp -----
+
+export interface SyncChange {
+    prompts: {
+        created: Prompt[];
+        updated: Prompt[];
+        deleted: { id: string; deletedAt: number }[];
+    };
+    folders: {
+        created: Folder[];
+        updated: Folder[];
+        deleted: { id: string; deletedAt: number }[];
+    };
+    serverTime: number;
+}
+
+export function getChangesSince(since: number): SyncChange {
+    const serverTime = Date.now();
+
+    // Get changed prompts (active ones modified after 'since')
+    const changedPrompts = db.prepare(
+        'SELECT * FROM prompts WHERE updatedAt > ? AND deletedAt IS NULL'
+    ).all(since) as PromptRow[];
+
+    // Get deleted prompts since timestamp
+    const deletedPrompts = db.prepare(
+        'SELECT id, deletedAt FROM prompts WHERE deletedAt IS NOT NULL AND deletedAt > ?'
+    ).all(since) as { id: string; deletedAt: number }[];
+
+    // Get changed folders (active ones modified after 'since')
+    const changedFolders = db.prepare(
+        'SELECT * FROM folders WHERE createdAt > ? AND deletedAt IS NULL'
+    ).all(since) as FolderRow[];
+
+    // Get deleted folders since timestamp
+    const deletedFolders = db.prepare(
+        'SELECT id, deletedAt FROM folders WHERE deletedAt IS NOT NULL AND deletedAt > ?'
+    ).all(since) as { id: string; deletedAt: number }[];
+
+    // Separate created vs updated (created = createdAt > since, updated = createdAt <= since)
+    const createdPrompts = changedPrompts.filter(p => p.createdAt > since).map(rowToPrompt);
+    const updatedPrompts = changedPrompts.filter(p => p.createdAt <= since).map(rowToPrompt);
+    const createdFolders = changedFolders.filter(f => f.createdAt > since).map(rowToFolder);
+    const updatedFolders = changedFolders.filter(f => f.createdAt <= since).map(rowToFolder);
+
+    return {
+        prompts: {
+            created: createdPrompts,
+            updated: updatedPrompts,
+            deleted: deletedPrompts,
+        },
+        folders: {
+            created: createdFolders,
+            updated: updatedFolders,
+            deleted: deletedFolders,
+        },
+        serverTime,
+    };
+}
 
 export function getStats(): { promptCount: number; folderCount: number } {
     const promptCount = (db.prepare('SELECT COUNT(*) as count FROM prompts').get() as { count: number }).count;

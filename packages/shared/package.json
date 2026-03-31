@@ -1,0 +1,8 @@
+{
+  "name": "@promptvault/shared",
+  "version": "1.0.0",
+  "description": "Shared types and utilities for PromptVault",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "MIT"
+}
